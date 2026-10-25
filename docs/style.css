@@ -115,3 +115,21 @@ input:disabled { opacity: .6; }
 .opt .pmeta { display: block; color: var(--muted); font-size: .78rem; }
 #methods { margin-top: 10px; } #methods label { font-size: .85rem; font-weight: 600; } #sw { font: .8rem/1.45 var(--mono); }
 #copyOverrides { display: block; margin-top: 4px; }
+
+.titlebar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.titlebar .btn { font-size: .8rem; padding: 3px 10px; white-space: nowrap; }
+.filters { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 10px 0 0; font-size: .85rem; color: var(--muted); }
+.filters select, #style { font: inherit; font-size: .85rem; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; max-width: 14em; }
+label.btn { display: inline-block; }
+.citesite { margin: 0 0 10px; } .citesite summary { cursor: pointer; } .citesite textarea { font: .8rem/1.45 var(--mono); margin: 6px 0; }
+.print-only { display: none; }
+@media print {
+  :root:root:root { --bg: #fff; --card: #fff; --ink: #000; --muted: #333; --line: #999; --accent: #036; }
+  .skip, .tabs, #pane-search, #pane-paste, #export, .basket-head .link, .items button, .items .tune, .items .pick, #warn, #empty,
+  #theme, .citesite, #basket .row { display: none !important; }
+  body { background: #fff; color: #000; }
+  .grid { display: block; } .basket-in { position: static; border: 0; max-height: none; overflow: visible; padding: 0; }
+  .items li { border: 0; padding: 2px 0; } .items .sub { display: none; }
+  .print-only { display: block; white-space: pre-wrap; font: 11pt/1.4 var(--serif); margin: 12px 16px; color: #000; }
+  #items { display: none; } .basket { display: none; } .foot { font-size: 9pt; }
+}

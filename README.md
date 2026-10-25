@@ -11,7 +11,9 @@ nothing you type or paste is sent anywhere.
 - **Search** about 30,000 tools by name, alias, bio.tools ID, paper title, DOI or PMID.
 - **Build a bibliography:** add tools to a list and export it as **BibTeX**, **RIS**, **CSL JSON** or
   plain text. For BibTeX the page also gives a ready-made `\cite{...}` line.
-- **Paste methods text:** paste a paragraph and the page lists the tool names it recognises, for you to
+- **Filter results** by: has a paper, hide preprints, has a repository, hide tools that need a check,
+  and licence (the commonest licences in bio.tools).
+- **Paste methods text or import a file:** paste a paragraph and the page lists the tool names it recognises, for you to
   confirm and add. Short lowercase words that could be ordinary English (for example "tee" or "moss")
   are left unticked.
 - **Choose the paper:** for tools where bio.tools lists several papers, or only a preprint, the
@@ -23,6 +25,14 @@ nothing you type or paste is sent anywhere.
   picked up. The page then lists "Name vX \cite{key}" lines for your methods section, and an optional
   checkbox adds a software entry (name, version, repository or homepage link) beside the paper.
   The software entry holds only those three facts; it is not a publication record.
+- **Import** a `.bib`, RIS or plain list of references or tool names (up to 2 MB). The page matches DOIs
+  and PMIDs against the index (names too, unless the file is a reference file, where titles would give
+  false matches), and you confirm what to add.
+- **Reference styles:** the *Text* export can be formatted as APA 7, Vancouver or Nature. Volume and page
+  numbers are not in the data, so these references end with the DOI instead of pages, and there is no
+  italic formatting. Check the result against your journal's instructions.
+- **Print** the bibliography, **dark mode** (automatic, light or dark) and a **Cite this site** box in
+  the footer.
 - **Share a list:** the bibliography, versions and paper choices are stored in the page link
   (`#t=bwa,samtools&v=bwa:0.7.17&c=...`) and in your browser, so a link reproduces the same list.
 - **Links:** each entry links to its DOI, PubMed and PMC records and to bio.tools.

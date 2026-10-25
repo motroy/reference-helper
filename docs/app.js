@@ -8,6 +8,7 @@
   const aliasMap = new Map(), doiMap = new Map(), pmidMap = new Map(), idIndex = new Map();
   let basket = [];            // tool ids, in the order added
   let versions = {}, choices = {};   // tool id -> version typed by the user / chosen paper (doi, or "pmid:N")
+  let filters = { doi: false, nopre: false, repo: false, ok: false, lic: "" };
   let alts = null, altsLoading = false, openPicker = null, metaVersion = "";
   let shown = [], shownCount = 0, fmt = "bib";
 
@@ -114,6 +115,22 @@
 
   /* -------------------------------------------------------------- search */
 
+  const passes = t => {
+    const f = t.f || [];
+    return !(filters.doi && !(t.d || t.p || t.u)) && !(filters.nopre && f.includes("pre")) && !(filters.repo && !t.r) &&
+      !(filters.ok && needsCheck(t)) && !(filters.lic && t.l !== filters.lic);
+  };
+  function setupFilters() {
+    const counts = new Map();
+    for (const t of tools) if (t.l) counts.set(t.l, (counts.get(t.l) || 0) + 1);
+    const top = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 14);
+    $("f-lic").append(...top.map(([l, n]) => h("option", { value: l }, `${l} (${n.toLocaleString()})`)));
+    const again = () => { filters = { doi: $("f-doi").checked, nopre: $("f-nopre").checked, repo: $("f-repo").checked,
+      ok: $("f-ok").checked, lic: $("f-lic").value }; runSearch($("q").value); };
+    $("filters").addEventListener("change", again);
+    $("f-repo").closest("label").hidden = $("f-lic").closest("label").hidden = !top.length;   // built without the records dump
+  }
+
   function runSearch(q) {
     q = q.trim();
     $("chips").hidden = !!q;
@@ -131,9 +148,14 @@
       if (!hits.length && q.includes(" ")) hits = search.search(q, { combineWith: "OR" });
       ids = [...new Set([...exact, ...hits.map(x => x.id)])];
     }
+    const total = ids.length;
+    ids = ids.filter(i => passes(tools[i]));
     shown = ids; shownCount = PAGE;
+    const hidden = total - ids.length;
     $("status").textContent = ids.length
-      ? `${ids.length.toLocaleString()} ${kind ? "tool" + (ids.length > 1 ? "s" : "") + " for this " + kind : "result" + (ids.length > 1 ? "s" : "")}`
+      ? `${ids.length.toLocaleString()} ${kind ? "tool" + (ids.length > 1 ? "s" : "") + " for this " + kind : "result" + (ids.length > 1 ? "s" : "")}` +
+        (hidden ? ` (${hidden.toLocaleString()} hidden by the filters)` : "")
+      : total ? `${total.toLocaleString()} found, all hidden by the filters.`
       : "No tool found. If it is not in bio.tools, cite the software by its URL and version rather than guessing a paper.";
     renderResults();
   }
@@ -288,8 +310,11 @@
     const picked = Object.keys(choices).filter(id => basket.includes(id) && altsFor(id).some(a => paperKey(a) === choices[id]));
     $("copyOverrides").hidden = !picked.length;
     const opts = { escape: true, protect: $("protect").checked };
+    const style = $("style").value;
+    $("styleWrap").hidden = fmt !== "txt";
     $("out").value = fmt === "bib" ? L.toBibtexAll(entries, opts) : fmt === "ris" ? L.toRisAll(entries)
-      : fmt === "csl" ? L.toCslAll(entries) : L.toTextAll(entries);
+      : fmt === "csl" ? L.toCslAll(entries) : style === "plain" ? L.toTextAll(entries) : L.toStyledAll(entries, style);
+    $("printOut").textContent = "References\n\n" + $("out").value;
     $("protectWrap").hidden = fmt !== "bib";
     $("cite").hidden = fmt !== "bib";
     $("cite").textContent = "\\cite{" + entries.map(e => e.key).join(",") + "}";
@@ -306,13 +331,24 @@
 
   /* -------------------------------------------------------------- paste */
 
-  function renderFound(mentions) {
+  function runFind() {
+    const text = $("paste").value;
+    const ids = L.findIdentifiers(text, doiMap, pmidMap);
+    let rows = ids.rows;
+    if (!L.looksLikeReferenceFile(text)) {                  // a reference file's titles would add false name matches
+      const taken = new Set(rows.map(r => r.candidates.join()));
+      rows = rows.concat(L.findMentions(text, aliasMap).filter(m => !taken.has(m.candidates.join())));
+    }
+    renderFound(rows, ids.unmatched.length ? ` ${ids.unmatched.length} DOI/PMID not in the index.` : "");
+  }
+
+  function renderFound(mentions, extra) {
     const seen = new Map();
     for (const m of mentions) if (!seen.has(m.alias)) seen.set(m.alias, m);
     const rows = [...seen.values()];
     $("pasteStatus").textContent = rows.length
-      ? `${rows.length} possible tool${rows.length > 1 ? "s" : ""} found. Untick anything that is just a common word.`
-      : "No tool names from the index were found in this text.";
+      ? `${rows.length} possible tool${rows.length > 1 ? "s" : ""} found. Untick anything that is just a common word.${extra || ""}`
+      : "No tool names, DOIs or PMIDs from the index were found in this text." + (extra || "");
     $("addFound").hidden = !rows.length;
     $("found").replaceChildren(...rows.map(m => {
       const sel = m.candidates.length > 1
@@ -322,10 +358,10 @@
       const first = tools[m.candidates[0]];
       const usable = m.candidates.some(i => tools[i].d || tools[i].p || tools[i].u);
       const cb = h("input", { type: "checkbox", "aria-label": "Include " + first.n, checked: m.likely && usable, disabled: !usable });
-      return h("li", { "data-alias": m.alias, "data-version": m.version || "" },
+      return h("li", { "data-alias": m.alias, "data-first": first.i, "data-version": m.version || "" },
         cb,
         h("div", {}, h("span", { class: "nm" }, sel ? "" : first.n), sel),
-        h("span", { class: "sub" }, `matched “${m.text}” · ${m.likely ? "looks like a tool name" : "could be an ordinary word, please confirm"}` +
+        h("span", { class: "sub" }, (m.byId ? `matched by ${m.text}` : `matched “${m.text}” · ${m.likely ? "looks like a tool name" : "could be an ordinary word, please confirm"}`) +
           (m.version ? ` · version ${m.version}` : "") + (m.candidates.length > 1 ? ` · ${m.candidates.length} tools share this name` : "") + (usable ? "" : " · no citation available")));
     }));
   }
@@ -335,7 +371,7 @@
     for (const li of $("found").children) {
       if (!li.querySelector("input[type=checkbox]").checked) continue;
       const sel = li.querySelector("select");
-      const id = sel ? sel.value : tools[aliasMap.get(li.dataset.alias)[0]].i;
+      const id = sel ? sel.value : li.dataset.first;
       if (!basket.includes(id)) { basket.push(id); added++; }
       if (li.dataset.version && !versions[id]) versions[id] = li.dataset.version;
     }
@@ -372,6 +408,7 @@
     const examples = ["bwa", "samtools", "spades", "fastp", "prokka", "kraken2", "gatk", "mlst", "abricate", "quast", "fastqc"];
     $("chips").replaceChildren(...examples.filter(a => aliasMap.has(a)).map(a =>
       h("button", { onclick: () => { $("q").value = a; runSearch(a); } }, tools[aliasMap.get(a)[0]].n)));
+    setupFilters();
     loadBasket(); renderBasket();
   }
 
@@ -400,7 +437,35 @@
   $("more").addEventListener("click", () => { shownCount += PAGE; renderResults(true); });
   $("clear").addEventListener("click", () => { basket = []; saveBasket(); renderBasket(); renderResults(true); });
   $("protect").addEventListener("change", renderOutput);
-  $("find").addEventListener("click", () => renderFound(L.findMentions($("paste").value, aliasMap)));
+  $("find").addEventListener("click", runFind);
+  $("file").addEventListener("change", async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    if (f.size > 2e6) { $("fileName").textContent = "That file is over 2 MB; open a smaller one."; return; }
+    $("paste").value = await f.text();
+    $("fileName").textContent = f.name;
+    runFind();
+    e.target.value = "";
+  });
+  $("style").addEventListener("change", renderOutput);
+  $("print").addEventListener("click", () => window.print());
+
+  /* theme: automatic (follow the system), light or dark */
+  const THEMES = ["auto", "light", "dark"];
+  function applyTheme(t) {
+    if (t === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+    $("theme").textContent = "Theme: " + t;
+    try { if (t === "auto") localStorage.removeItem("tool-refs-theme"); else localStorage.setItem("tool-refs-theme", t); } catch (e) { /* private mode */ }
+  }
+  let theme = document.documentElement.dataset.theme || "auto";
+  applyTheme(theme);
+  $("theme").addEventListener("click", () => { theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]; applyTheme(theme); });
+
+  /* how to cite this site */
+  const SITE_URL = "https://motroy.github.io/reference-helper/";
+  $("siteCite").value = `Motro Y. Tool References [Internet]. ${SITE_URL}. Data: bio.tools (CC BY 4.0). Accessed ${new Date().toISOString().slice(0, 10)}.\n\n` +
+    `@misc{toolreferences,\n  author = {Motro, Yair},\n  title = {Tool References},\n  year = {${new Date().getFullYear()}},\n  url = {${SITE_URL}},\n  note = {Accessed ${new Date().toISOString().slice(0, 10)}}\n}\n`;
+  $("copySite").addEventListener("click", async () => { try { await navigator.clipboard.writeText($("siteCite").value); $("copySite").textContent = "Copied"; } catch (e) { $("siteCite").select(); document.execCommand("copy"); } });
   $("addFound").addEventListener("click", addFound);
   $("copy").addEventListener("click", () => copyText($("out").value, "Copied."));
   $("copySw").addEventListener("click", () => copyText($("sw").value, "Copied the software list."));
