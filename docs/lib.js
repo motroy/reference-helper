@@ -204,6 +204,91 @@
   }
   const toTextAll = entries => entries.map((e, i) => toText(e, i + 1)).join("\n") + (entries.length ? "\n" : "");
 
+  /* ------------------------------------------------------- citation styles */
+
+  // "A.A." / "AA" / "S.-J." -> ["A.", "A."] / ["A.", "A."] / ["S.-J."];  "Heng" -> ["H."]
+  function initialsOf(given) {
+    const g = (given || "").replace(/\./g, "").trim();
+    if (!g) return [];
+    const out = [];
+    const upperOnly = !/[a-z]/.test(g);
+    for (const word of g.split(/\s+/)) {
+      const parts = word.split("-").filter(Boolean);
+      if (upperOnly && parts.length === 1 && word.length > 1) { for (const ch of word) out.push(ch + "."); continue; }
+      out.push(parts.map(x => x[0].toUpperCase() + ".").join("-"));
+    }
+    return out;
+  }
+  const nameParts = a => { const p = parseAuthor(a); return { family: p.literal || p.family, ini: initialsOf(p.given) }; };
+  const ensureDot = s => (/[.?!]$/.test(s) ? s : s + ".");
+  const isSoftware = e => !!(e.url && !e.journal);
+
+  /* APA 7 (plain text: no italics; volume and pages are not in the data, so the DOI identifies the paper) */
+  function toApa(e) {
+    const names = e.authors.map(nameParts);
+    const fmt = n => n.ini.length ? `${n.family}, ${n.ini.join(" ")}` : n.family;
+    let au = "";
+    if (names.length === 1) au = fmt(names[0]);
+    else if (names.length > 1 && names.length <= 20) au = names.slice(0, -1).map(fmt).join(", ") + ", & " + fmt(names[names.length - 1]);
+    else if (names.length > 20) au = names.slice(0, 19).map(fmt).join(", ") + ", . . . " + fmt(names[names.length - 1]);
+    const year = e.year ? `(${e.year}).` : "(n.d.).";
+    if (isSoftware(e)) {
+      const title = e.title ? e.title + (e.version ? ` (Version ${e.version})` : "") + " [Computer software]." : "";
+      return [au && ensureDot(au), year, title, e.url].filter(Boolean).join(" ");
+    }
+    return [au && ensureDot(au), year, e.title && ensureDot(e.title), e.journal && ensureDot(e.journal),
+      e.doi ? "https://doi.org/" + e.doi : e.pmid ? "PMID: " + e.pmid : ""].filter(Boolean).join(" ");
+  }
+
+  /* Vancouver (ICMJE/NLM): "Li H, Durbin R. Title. Journal. 2009. doi:10..." (first six authors, then et al.) */
+  function toVancouver(e, n) {
+    const names = e.authors.map(nameParts).map(a => `${a.family}${a.ini.length ? " " + a.ini.join("").replace(/[.]/g, "") : ""}`);
+    const au = names.length > 6 ? names.slice(0, 6).join(", ") + ", et al." : names.join(", ");
+    const bits = [au && ensureDot(au), isSoftware(e) ? e.title : e.title && ensureDot(e.title)];
+    if (isSoftware(e)) bits.push("[software].", e.version && `Version ${e.version}.`, e.year && e.year + ".", "Available from: " + e.url);
+    else bits.push(e.journal && ensureDot(e.journal), e.year && e.year + ".", e.doi ? "doi:" + e.doi : e.pmid ? "PMID: " + e.pmid : "");
+    return (n ? n + ". " : "") + bits.filter(Boolean).join(" ");
+  }
+
+  /* Nature: "Li, H. & Durbin, R. Title. Journal (2009)." (up to five authors, then et al.) */
+  function toNature(e, n) {
+    const names = e.authors.map(nameParts).map(a => a.ini.length ? `${a.family}, ${a.ini.join(" ")}` : a.family);
+    const au = names.length > 5 ? names[0] + " et al." : names.length > 1 ? names.slice(0, -1).join(", ") + " & " + names[names.length - 1] : names[0] || "";
+    const bits = [au && ensureDot(au), e.title && ensureDot(e.title)];
+    if (isSoftware(e)) bits.push(e.version && `Version ${e.version}.`, e.year && `(${e.year}).`, e.url);
+    else bits.push(e.journal && (e.year ? `${e.journal} (${e.year}).` : ensureDot(e.journal)), e.doi && "https://doi.org/" + e.doi);
+    return (n ? n + ". " : "") + bits.filter(Boolean).join(" ");
+  }
+
+  const STYLES = { apa: "APA 7", vancouver: "Vancouver", nature: "Nature" };
+  function toStyledAll(entries, style) {
+    if (style === "apa") return entries.map(toApa).sort((a, b) => a.localeCompare(b)).join("\n\n") + (entries.length ? "\n" : "");
+    const f = style === "nature" ? toNature : toVancouver;
+    return entries.map((e, i) => f(e, i + 1)).join("\n") + (entries.length ? "\n" : "");
+  }
+
+  /* ------------------------------------------------ DOIs and PMIDs in a file */
+
+  const looksLikeReferenceFile = text => (text.match(/^\s*@\w+\s*\{/gm) || []).length + (text.match(/^TY\s+-/gm) || []).length >= 2;
+
+  /* DOIs and PMIDs found in text (a .bib, RIS, reference list or methods text), matched to tools.
+     doiMap / pmidMap map lower-case DOI / PMID -> tool indexes. Returns { rows, unmatched }. */
+  function findIdentifiers(text, doiMap, pmidMap) {
+    const rows = [], unmatched = [], seen = new Set();
+    const add = (kind, id, hit) => {
+      if (seen.has(kind + id)) return;
+      seen.add(kind + id);
+      if (hit) rows.push({ text: (kind === "doi" ? "DOI " : "PMID ") + id, alias: kind + ":" + id, candidates: hit, likely: true, version: null, byId: true });
+      else unmatched.push(id);
+    };
+    for (const m of text.matchAll(/10\.\d{4,9}\/[^\s"<>{}]+/g)) {
+      const doi = m[0].replace(/[.,;)\]]+$/, "").toLowerCase();
+      add("doi", doi, doiMap.get(doi));
+    }
+    for (const m of text.matchAll(/PMID:?\s*(\d{4,9})/gi)) add("pmid", m[1], pmidMap.get(m[1]));
+    return { rows, unmatched };
+  }
+
   /* ------------------------------------------------- finding tools in text */
 
   const VERSION_AFTER = /^(?:[\s(,]*)(?:v(?:ersion)?\.?\s*)?(\d+(?:\.\d+)+[a-z]?)/i;
@@ -256,6 +341,6 @@
   return {
     normalizeAlias, stripScriptExt, bibtexName, parseAuthor, splitAuthors, entryFromTool,
     buildEntries, softwareList, versionLabel, citeLabel, toBibtex, toBibtexAll, toRis, toRisAll, toCsl, toCslAll, toText, toTextAll,
-    findMentions,
+    findMentions, findIdentifiers, looksLikeReferenceFile, toApa, toVancouver, toNature, toStyledAll, STYLES, initialsOf,
   };
 });
