@@ -4,7 +4,7 @@ A searchable, static website for finding the paper to cite for a bioinformatics 
 bibliography for a methods section. It runs entirely in your browser: no server, no account, and
 nothing you type or paste is sent anywhere.
 
-**Live site:** `https://<your-username>.github.io/<repo-name>/`
+**Live site:** `https://motroy.github.io/reference-helper/`
 
 ## What it does
 
