@@ -8,14 +8,23 @@ nothing you type or paste is sent anywhere.
 
 ## What it does
 
-- **Search** about 27,000 tools by name, alias, bio.tools ID, paper title, DOI or PMID.
+- **Search** about 30,000 tools by name, alias, bio.tools ID, paper title, DOI or PMID.
 - **Build a bibliography:** add tools to a list and export it as **BibTeX**, **RIS**, **CSL JSON** or
   plain text. For BibTeX the page also gives a ready-made `\cite{...}` line.
 - **Paste methods text:** paste a paragraph and the page lists the tool names it recognises, for you to
   confirm and add. Short lowercase words that could be ordinary English (for example "tee" or "moss")
   are left unticked.
-- **Share a list:** the bibliography is stored in the page link (`#t=bwa,samtools,...`) and in your
-  browser, so a link reproduces the same list.
+- **Choose the paper:** for tools where bio.tools lists several papers, or only a preprint, the
+  bibliography offers **Choose paper** with the other papers (title, journal, year, citations). Your
+  choice replaces the *check* badge and goes into the exports. **Copy my paper choices as
+  overrides.json entries** gives you the entries to paste into `data/overrides.json`, so a choice can
+  become the default at the next rebuild.
+- **Versions:** type a version next to each tool, or paste methods text such as "fastp v0.23.2" and it is
+  picked up. The page then lists "Name vX \cite{key}" lines for your methods section, and an optional
+  checkbox adds a software entry (name, version, repository or homepage link) beside the paper.
+  The software entry holds only those three facts; it is not a publication record.
+- **Share a list:** the bibliography, versions and paper choices are stored in the page link
+  (`#t=bwa,samtools&v=bwa:0.7.17&c=...`) and in your browser, so a link reproduces the same list.
 - **Links:** each entry links to its DOI, PubMed and PMC records and to bio.tools.
 
 ## Reading the badges
@@ -61,17 +70,18 @@ correct.
 
 ## Known limitations
 
-- One paper is shown per tool (the one bio.tools marks as primary, otherwise the most cited). Tools
-  often have a second paper worth citing, such as a later version or a companion method. Check the tool's
-  documentation, and use the *check* and *primary of N* badges as a prompt to do so.
+- One paper is shown per tool by default (the one bio.tools marks as primary, otherwise the most cited).
+  *Choose paper* lists the others for flagged tools (several papers, or a preprint) when they have a
+  title; other tools may still have a second paper worth citing, such as a companion method. Check the
+  tool's documentation, and use the *check* and *primary of N* badges as a prompt to do so.
 - A few hundred tools were lost when the alias table was built and do not appear.
-- Repository (GitHub) links are only shown if the site was built with the bio.tools records dump; check
-  the line under the page title for "with a repository link".
+- Repository, homepage and licence come from the bio.tools records dump (Zenodo record 13869530, 2024).
+  Tools registered after that snapshot are missing, and links may have moved since.
 - Tools with no listed paper show *no citation*.
 
 ## Contents of this repository
 
-This repository contains only the built site, served from the `/docs` folder:
+This repository contains the built site, served from the `/docs` folder, and the package to rebuild it:
 
 | Path | What |
 |---|---|
@@ -80,7 +90,10 @@ This repository contains only the built site, served from the `/docs` folder:
 | `docs/vendor/` | [MiniSearch](https://github.com/lucaong/minisearch) (MIT licence), the in-browser search library |
 | `docs/data/tools.json` | one record per tool (search and citation fields) |
 | `docs/data/authors.json` | author lists, used when formatting references |
+| `docs/data/alts.json` | the other papers for flagged tools, loaded only when *Choose paper* is opened |
 | `docs/data/meta.json` | build date, counts and a content hash used to refresh the browser cache |
+| `PROVENANCE.jsonl` | one line per distinct build: input hashes, site version and counts |
+| `biotools-rebuild.zip` | build script, front-end sources and data (see `REBUILD.md` inside) |
 
 The site is regenerated from a local SQLite lookup database with a build script; it is not built by
 GitHub Actions. To update it, rebuild locally and commit the new `docs/` folder.

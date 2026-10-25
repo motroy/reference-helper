@@ -7,6 +7,8 @@
   let tools = [], authors = {}, search = null;
   const aliasMap = new Map(), doiMap = new Map(), pmidMap = new Map(), idIndex = new Map();
   let basket = [];            // tool ids, in the order added
+  let versions = {}, choices = {};   // tool id -> version typed by the user / chosen paper (doi, or "pmid:N")
+  let alts = null, altsLoading = false, openPicker = null, metaVersion = "";
   let shown = [], shownCount = 0, fmt = "bib";
 
   /* ------------------------------------------------------------ helpers */
@@ -28,14 +30,14 @@
   const ext = (href, text, title) => href && h("a", { href, target: "_blank", rel: "noopener noreferrer", title }, text);
   const doiUrl = d => "https://doi.org/" + encodeURI(d);
 
-  function firstAuthor(tool) {
-    const list = L.splitAuthors(authors[tool.i]);
+  function firstAuthor(tool, byTool) {
+    const list = L.splitAuthors((byTool || authors)[tool.i]);
     if (!list.length) return "";
     const p = L.parseAuthor(list[0]);
     const name = p.literal || p.family;
     return list.length > 2 ? name + " et al." : list.length === 2 ? name + " & " + (L.parseAuthor(list[1]).family || "") : name;
   }
-  const shortCite = t => [firstAuthor(t), t.y && `(${t.y})`, t.j].filter(Boolean).join(" ");
+  const shortCite = (t, byTool) => [firstAuthor(t, byTool), t.y && `(${t.y})`, t.j].filter(Boolean).join(" ");
 
   /* -------------------------------------------------------------- flags */
 
@@ -44,7 +46,7 @@
     const b = (text, cls, tip) => out.push(h("span", { class: "badge " + (cls || ""), title: tip }, text));
     if (f.includes("nopub") || f.includes("nocite"))
       b("no citation", "bad", "No paper is listed for this tool. Cite the software by its URL and version instead of inventing a reference.");
-    if (f.includes("amb"))
+    if (f.includes("amb") && !f.includes("chosen"))
       b("check: " + (t.np || "several") + " papers", "warn", "bio.tools lists several papers and does not single one out. The most-cited is shown; confirm it is the one you want.");
     else if (t.np > 1)
       b("primary of " + t.np, "", "bio.tools lists " + t.np + " papers for this tool; this is the one it marks as primary.");
@@ -54,6 +56,8 @@
       b("check: manual entry", "warn", "Entered by hand and not yet confirmed against PubMed/Crossref.");
     else if (t.s === "override")
       b("manual entry", "ok", "Entered by hand (overrides.json).");
+    if (f.includes("chosen"))
+      b("your choice", "ok", "You picked this paper from the others bio.tools lists for this tool.");
     if (f.includes("cor"))
       b("corrected", "ok", t.note || "A wrong ID from bio.tools was repaired using PubMed.");
     return out;
@@ -137,39 +141,133 @@
   /* ------------------------------------------------------------- basket */
 
   const byId = id => tools[idIndex.get(id)];
-  const basketTools = () => basket.map(byId).filter(Boolean);
+  const paperKey = p => (p.d ? p.d.toLowerCase() : p.p ? "pmid:" + p.p : "");
+  const altsFor = id => (alts && alts[id]) || [];
+
+  // The tool as it will be cited: the default paper, or the one the user picked from the alternatives.
+  function effective(t) {
+    const c = choices[t.i], a = c && altsFor(t.i).find(x => paperKey(x) === c);
+    if (!a) return { tool: t, authors: authors[t.i] };
+    const f = (t.f || []).filter(x => x !== "amb" && x !== "pre" && x !== "cor");
+    if (a.pre) f.push("pre");
+    f.push("chosen");
+    return { tool: { ...t, d: a.d, p: a.p, c: undefined, t: a.t, j: a.j, y: a.y, k: undefined, f, note: undefined },
+             authors: a.au };
+  }
+  const basketTools = () => basket.map(byId).filter(Boolean).map(t => effective(t).tool);
+  const authorsNow = () => {
+    const m = { ...authors };
+    for (const t of basket.map(byId).filter(Boolean)) m[t.i] = effective(t).authors;
+    return m;
+  };
 
   function toggle(id) {
     basket = basket.includes(id) ? basket.filter(x => x !== id) : [...basket, id];
+    if (!basket.includes(id)) { delete versions[id]; delete choices[id]; if (openPicker === id) openPicker = null; }
     saveBasket(); renderBasket();
   }
 
+  // Link format: #t=id,id&v=id:version,...&c=id:doi,...  (every part percent-encoded; older #t=... links still work)
+  const packPairs = o => Object.entries(o).filter(([, v]) => v).map(([k, v]) => encodeURIComponent(k) + ":" + encodeURIComponent(v)).join(",");
+  const unpackPairs = str => {
+    const o = {};
+    for (const pair of (str || "").split(",")) {
+      const [k, v] = pair.split(":").map(x => { try { return decodeURIComponent(x); } catch (e) { return ""; } });
+      if (k && v) o[k] = v;
+    }
+    return o;
+  };
+
   function saveBasket() {
-    const hash = basket.length ? "#t=" + basket.map(encodeURIComponent).join(",") : "";
+    const parts = [];
+    if (basket.length) {
+      parts.push("t=" + basket.map(encodeURIComponent).join(","));
+      if (Object.keys(versions).length) parts.push("v=" + packPairs(versions));
+      if (Object.keys(choices).length) parts.push("c=" + packPairs(choices));
+    }
+    const hash = parts.length ? "#" + parts.join("&") : "";
     try { history.replaceState(null, "", location.pathname + location.search + hash); } catch (e) { /* ignore */ }
-    try { localStorage.setItem("tool-refs-basket", JSON.stringify(basket)); } catch (e) { /* private mode */ }
+    try { localStorage.setItem("tool-refs-basket", JSON.stringify({ basket, versions, choices })); } catch (e) { /* private mode */ }
   }
 
   function loadBasket() {
-    let ids = null;
-    const m = /^#t=(.*)$/.exec(location.hash);
-    if (m) ids = m[1].split(",").map(decodeURIComponent).filter(Boolean);
-    else try { ids = JSON.parse(localStorage.getItem("tool-refs-basket") || "null"); } catch (e) { /* ignore */ }
-    basket = (Array.isArray(ids) ? ids : []).filter(id => idIndex.has(id));
-    basket = [...new Set(basket)];
+    let ids = null, v = {}, c = {};
+    const m = /^#t=([^&]*)(?:&(.*))?$/.exec(location.hash);
+    if (m) {
+      ids = m[1].split(",").map(x => { try { return decodeURIComponent(x); } catch (e) { return ""; } }).filter(Boolean);
+      const params = new URLSearchParams(m[2] || "");
+      v = unpackPairs(params.get("v")); c = unpackPairs(params.get("c"));
+    } else {
+      try {
+        const saved = JSON.parse(localStorage.getItem("tool-refs-basket") || "null");
+        if (Array.isArray(saved)) ids = saved;           // saved by an earlier version of the page
+        else if (saved) { ids = saved.basket; v = saved.versions || {}; c = saved.choices || {}; }
+      } catch (e) { /* ignore */ }
+    }
+    basket = [...new Set((Array.isArray(ids) ? ids : []).filter(id => idIndex.has(id)))];
+    versions = {}; choices = {};
+    for (const id of basket) { if (typeof v[id] === "string") versions[id] = v[id].slice(0, 40); if (typeof c[id] === "string") choices[id] = c[id]; }
+    if (Object.keys(choices).length) loadAlts();
+  }
+
+  async function loadAlts() {
+    if (alts || altsLoading) return;
+    altsLoading = true;
+    try {
+      const r = await fetch("data/alts.json?v=" + metaVersion);
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      alts = await r.json();
+    } catch (e) { alts = {}; $("note").textContent = "Could not load the alternative papers (" + e.message + ")."; }
+    altsLoading = false;
+    renderBasket();
+  }
+
+  function pickerOption(id, key, p, isDefault) {
+    const name = "paper-" + id;
+    const meta = [p.j, p.y, p.cc ? p.cc.toLocaleString() + " citations" : "", p.pre ? "preprint" : ""].filter(Boolean).join(" · ");
+    return h("label", { class: "opt" },
+      h("input", { type: "radio", name, checked: (choices[id] || "") === key,
+        onchange: () => { if (key) choices[id] = key; else delete choices[id]; saveBasket(); renderBasket(); } }),
+      h("span", {}, h("span", { class: "ptitle" }, p.t || "(no title)"),
+        h("span", { class: "pmeta" }, [meta, isDefault ? "shown by default" : ""].filter(Boolean).join(" · ")),
+        p.d ? h("span", { class: "pmeta" }, "DOI " + p.d) : null));
+  }
+
+  function picker(t) {
+    if (!alts) { loadAlts(); return h("p", { class: "hint" }, "Loading the other papers…"); }
+    const list = altsFor(t.i);
+    if (!list.length) return h("p", { class: "hint" }, "No other papers with a title are listed for this tool.");
+    return h("fieldset", { class: "picker" },
+      h("legend", {}, "Which paper should be cited?"),
+      pickerOption(t.i, "", t, true), list.map(a => pickerOption(t.i, paperKey(a), a, false)));
+  }
+
+  function basketItem(orig, t, am) {
+    const id = orig.i;
+    const alt = orig.na ? h("button", { class: "link", "aria-expanded": String(openPicker === id),
+      onclick: () => { openPicker = openPicker === id ? null : id; renderBasket(); } },
+      openPicker === id ? "Hide papers" : `Choose paper (${orig.na} other${orig.na > 1 ? "s" : ""})`) : null;
+    const ver = h("input", { type: "text", class: "ver", value: versions[id] || "", placeholder: "version, e.g. 1.2.3", maxlength: 40,
+      "aria-label": "Version of " + t.n, autocomplete: "off", spellcheck: "false",
+      oninput: e => { const v = e.target.value.trim(); if (v) versions[id] = v; else delete versions[id]; saveBasket(); renderOutput(); } });
+    return h("li", {},
+      h("span", { class: "nm" }, t.n),
+      h("button", { "aria-label": "Remove " + t.n, title: "Remove", onclick: () => { toggle(id); renderResults(true); } }, "×"),
+      h("span", { class: "sub" }, [shortCite(t, am) || "software citation", reasons(t) && "⚠ " + reasons(t)].filter(Boolean).join(" · ")),
+      h("div", { class: "tune" }, ver, alt),
+      openPicker === id ? h("div", { class: "pick" }, picker(orig)) : null);
   }
 
   function renderBasket() {
+    const origs = basket.map(byId).filter(Boolean), am = authorsNow();
     const ts = basketTools();
     $("count").textContent = ts.length;
     $("empty").hidden = ts.length > 0;
     $("clear").hidden = $("export").hidden = ts.length === 0;
-    $("items").replaceChildren(...ts.map(t => h("li", {},
-      h("span", { class: "nm" }, t.n),
-      h("button", { "aria-label": "Remove " + t.n, title: "Remove", onclick: () => { toggle(t.i); renderResults(true); } }, "×"),
-      h("span", { class: "sub" }, [shortCite(t) || "software citation", reasons(t) && "⚠ " + reasons(t)].filter(Boolean).join(" · ")))));
+    $("items").replaceChildren(...origs.map((o, i) => basketItem(o, ts[i], am)));
     const flagged = ts.filter(needsCheck);
     $("warn").hidden = !flagged.length;
+    $("warn").textContent = "";
     if (flagged.length) $("warn").textContent = `${flagged.length} of ${ts.length} need a manual check before you submit: ${flagged.map(t => t.n).join(", ")}.`;
     renderOutput();
   }
@@ -182,7 +280,13 @@
   function renderOutput() {
     const ts = basketTools();
     if (!ts.length) return;
-    const entries = L.buildEntries(ts, authors);
+    const am = authorsNow(), withVer = ts.filter(t => versions[t.i]);
+    $("softwareWrap").hidden = !withVer.length;
+    const entries = L.buildEntries(ts, am, { versions, software: withVer.length > 0 && $("software").checked });
+    $("methods").hidden = !withVer.length;
+    if (withVer.length) $("sw").value = L.softwareList(ts, entries, versions, fmt === "bib");
+    const picked = Object.keys(choices).filter(id => basket.includes(id) && altsFor(id).some(a => paperKey(a) === choices[id]));
+    $("copyOverrides").hidden = !picked.length;
     const opts = { escape: true, protect: $("protect").checked };
     $("out").value = fmt === "bib" ? L.toBibtexAll(entries, opts) : fmt === "ris" ? L.toRisAll(entries)
       : fmt === "csl" ? L.toCslAll(entries) : L.toTextAll(entries);
@@ -218,11 +322,11 @@
       const first = tools[m.candidates[0]];
       const usable = m.candidates.some(i => tools[i].d || tools[i].p || tools[i].u);
       const cb = h("input", { type: "checkbox", "aria-label": "Include " + first.n, checked: m.likely && usable, disabled: !usable });
-      return h("li", { "data-alias": m.alias },
+      return h("li", { "data-alias": m.alias, "data-version": m.version || "" },
         cb,
         h("div", {}, h("span", { class: "nm" }, sel ? "" : first.n), sel),
         h("span", { class: "sub" }, `matched “${m.text}” · ${m.likely ? "looks like a tool name" : "could be an ordinary word, please confirm"}` +
-          (m.candidates.length > 1 ? ` · ${m.candidates.length} tools share this name` : "") + (usable ? "" : " · no citation available")));
+          (m.version ? ` · version ${m.version}` : "") + (m.candidates.length > 1 ? ` · ${m.candidates.length} tools share this name` : "") + (usable ? "" : " · no citation available")));
     }));
   }
 
@@ -233,6 +337,7 @@
       const sel = li.querySelector("select");
       const id = sel ? sel.value : tools[aliasMap.get(li.dataset.alias)[0]].i;
       if (!basket.includes(id)) { basket.push(id); added++; }
+      if (li.dataset.version && !versions[id]) versions[id] = li.dataset.version;
     }
     saveBasket(); renderBasket(); renderResults(true);
     $("pasteStatus").textContent = `Added ${added} to the bibliography.`;
@@ -273,6 +378,7 @@
   async function boot() {
     try {
       const meta = await (await fetch("data/meta.json", { cache: "no-cache" })).json();
+      metaVersion = meta.version;
       const v = "?v=" + meta.version;
       const [t, a] = await Promise.all([fetch("data/tools.json" + v), fetch("data/authors.json" + v)]);
       if (!t.ok || !a.ok) throw new Error("HTTP " + (t.ok ? a.status : t.status));
@@ -297,6 +403,19 @@
   $("find").addEventListener("click", () => renderFound(L.findMentions($("paste").value, aliasMap)));
   $("addFound").addEventListener("click", addFound);
   $("copy").addEventListener("click", () => copyText($("out").value, "Copied."));
+  $("copySw").addEventListener("click", () => copyText($("sw").value, "Copied the software list."));
+  $("software").addEventListener("change", renderOutput);
+  $("copyOverrides").addEventListener("click", () => {
+    const o = {};
+    for (const t of basket.map(byId).filter(Boolean)) {
+      const e = effective(t);
+      if (!e.tool.f.includes("chosen")) continue;
+      o[L.normalizeAlias(t.n)] = { display_name: t.n, doi: e.tool.d, pmid: e.tool.p, title: e.tool.t, journal: e.tool.j, year: e.tool.y,
+        authors: e.authors, bibtex_key: L.normalizeAlias(t.n) + (e.tool.y || "nd") };
+      for (const k of Object.keys(o[L.normalizeAlias(t.n)])) if (o[L.normalizeAlias(t.n)][k] == null) delete o[L.normalizeAlias(t.n)][k];
+    }
+    copyText(JSON.stringify(o, null, 2) + "\n", "Copied. Paste these entries into data/overrides.json and rebuild to make the choice the default for everyone.");
+  });
   $("share").addEventListener("click", () => copyText(location.href, "Link copied. Anyone opening it gets this list."));
   $("download").addEventListener("click", () => {
     const [name, type] = EXT[fmt];

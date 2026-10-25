@@ -40,34 +40,76 @@
   /* -------------------------------------------------------------- entries */
 
   // Software cited by URL rather than by a paper (FastQC) has no journal.
-  function entryFromTool(tool, authors) {
-    return {
+  function entryFromTool(tool, authors, version) {
+    const e = {
       key: tool.k || normalizeAlias(tool.n) + (tool.y || "nd"),
       authors: splitAuthors(authors),
       title: tool.t || null, journal: tool.j || null, year: tool.y || null,
       doi: tool.d || null, pmid: tool.p || null, url: tool.u || null,
-      tools: [tool.n],
+      tools: [tool.n], ids: [tool.i],
     };
+    if (version && e.url && !e.journal) e.version = version;   // cited by URL: the version is part of the entry
+    return e;
   }
 
-  // One entry per distinct paper (two tools citing the same DOI share one entry, so the .bib
-  // has no duplicates) and unique keys (a clash gets a, b, c...).
-  function buildEntries(tools, authorsById) {
+  const httpUrl = u => (/^https?:\/\//i.test(u || "") ? u : null);
+
+  // "0.7.17" -> "v0.7.17"; anything else ("2020b", "version 3") is shown as typed.
+  const versionLabel = v => (/^\d/.test(v) ? "v" + v : v);
+
+  /* One entry per distinct paper (two tools citing the same DOI share one entry, so the .bib
+     has no duplicates) and unique keys (a clash gets a, b, c...).
+     opts.versions {toolId: "1.2"}: tools cited by URL carry their version in the entry.
+     opts.software: also add a software entry (name, version, URL) for each tool that has a version
+     and a repository or homepage, next to its paper. */
+  function buildEntries(tools, authorsById, opts) {
+    opts = opts || {};
+    const versions = opts.versions || {};
     const entries = [], byPaper = new Map(), keys = new Set();
+    const uniqueKey = base => {
+      let key = base, n = 0;
+      while (keys.has(key)) key = base + String.fromCharCode(97 + n++ % 26) + (n > 26 ? n : "");
+      keys.add(key);
+      return key;
+    };
     for (const tool of tools) {
-      const e = entryFromTool(tool, authorsById[tool.i]);
+      const e = entryFromTool(tool, authorsById[tool.i], versions[tool.i]);
       const id = e.doi ? "doi:" + e.doi.toLowerCase() : e.pmid ? "pmid:" + e.pmid
         : e.url ? "url:" + e.url : "key:" + e.key;
       const seen = byPaper.get(id);
-      if (seen) { seen.tools.push(tool.n); continue; }
-      let key = e.key, n = 0;
-      while (keys.has(key)) key = e.key + String.fromCharCode(97 + n++ % 26) + (n > 26 ? n : "");
-      e.key = key;
-      keys.add(key);
+      if (seen) { seen.tools.push(tool.n); seen.ids.push(tool.i); continue; }
+      e.key = uniqueKey(e.key);
       byPaper.set(id, e);
       entries.push(e);
     }
+    if (opts.software) {
+      for (const tool of tools) {
+        const url = httpUrl(tool.r) || httpUrl(tool.h);
+        if (!versions[tool.i] || !url || tool.u) continue;
+        entries.push({
+          key: uniqueKey(normalizeAlias(tool.n) + "software"), authors: [], title: tool.n, journal: null,
+          year: null, doi: null, pmid: null, url, version: versions[tool.i], software: true,
+          tools: [tool.n], ids: [tool.i],
+        });
+      }
+    }
     return entries;
+  }
+
+  /* "BWA v0.7.17 \cite{li2009fast,bwasoftware}" (bib) or "BWA v0.7.17 (Li & Durbin 2009)": one line
+     per tool that has a version, for pasting into a methods section. */
+  function citeLabel(e) {
+    const names = e.authors.map(a => { const p = parseAuthor(a); return p.literal || p.family; });
+    const who = names.length > 2 ? names[0] + " et al." : names.join(" & ") || e.tools[0] + " software";
+    return who + (e.year ? " " + e.year : "");
+  }
+  function softwareList(tools, entries, versions, asBibtex) {
+    return tools.filter(t => versions[t.i]).map(t => {
+      const mine = entries.filter(e => e.ids.includes(t.i));
+      const ref = !mine.length ? "" : asBibtex ? " \\cite{" + mine.map(e => e.key).join(",") + "}"
+        : " (" + mine.map(citeLabel).join("; ") + ")";
+      return `${t.n} ${versionLabel(versions[t.i])}${ref}`;
+    }).join("\n") + "\n";
   }
 
   /* --------------------------------------------------------------- BibTeX */
@@ -92,7 +134,8 @@
     if (e.year) fields.push(`  year = {${e.year}}`);
     if (e.doi) fields.push(`  doi = {${e.doi}}`);
     if (e.url) fields.push(`  url = {${e.url}}`);
-    if (e.pmid) fields.push(`  note = {PMID: ${e.pmid}}`);
+    const notes = [e.version && "Version " + e.version, e.pmid && "PMID: " + e.pmid].filter(Boolean);
+    if (notes.length) fields.push(`  note = {${notes.join("; ")}}`);
     const kind = e.url && !e.journal ? "misc" : "article";
     return `@${kind}{${e.key},\n${fields.join(",\n")}\n}`;
   }
@@ -120,6 +163,7 @@
     if (e.year) lines.push(`PY  - ${e.year}`);
     if (e.doi) lines.push(`DO  - ${e.doi}`);
     if (e.url) lines.push(`UR  - ${e.url}`);
+    if (e.version) lines.push(`ET  - ${e.version}`);
     if (e.pmid) lines.push(`N1  - PMID: ${e.pmid}`);
     lines.push("ER  - ");
     return lines.join("\r\n");
@@ -137,6 +181,7 @@
     if (e.doi) o.DOI = e.doi;
     if (e.pmid) o.PMID = String(e.pmid);
     if (e.url) o.URL = e.url;
+    if (e.version) o.version = e.version;
     return o;
   }
   const toCslAll = entries => JSON.stringify(entries.map(toCsl), null, 2) + "\n";
@@ -152,6 +197,7 @@
     if (e.journal) bits.push(e.journal + ".");
     if (e.year) bits.push(e.year + ".");
     if (e.doi) bits.push("doi:" + e.doi + ".");
+    if (e.version) bits.push("Version " + e.version + ".");
     if (e.url) bits.push("Available from: " + e.url);
     if (e.pmid) bits.push("PMID: " + e.pmid + ".");
     return (n ? n + ". " : "") + bits.join(" ");
@@ -160,7 +206,7 @@
 
   /* ------------------------------------------------- finding tools in text */
 
-  const VERSION_AFTER = /^(?:[\s(,]*)(?:v(?:ersion)?\.?\s*)?\d+(?:\.\d+)+/i;
+  const VERSION_AFTER = /^(?:[\s(,]*)(?:v(?:ersion)?\.?\s*)?(\d+(?:\.\d+)+[a-z]?)/i;
   const VERSION_SUFFIX = /[-_ ]?v?\d+(?:\.\d+)*[a-z]?$/i;
 
   /* Scan free text for tool names. `aliasMap` maps normalised alias -> array of tool indexes.
@@ -180,7 +226,7 @@
       if (noVer && noVer !== raw) tries.push(noVer);
       for (const t of tries) {
         const a = normalizeAlias(t);
-        if (a.length >= 3 && aliasMap.has(a)) return { alias: a, via: t };
+        if (a.length >= 3 && aliasMap.has(a)) return { alias: a, via: t, ver: t === noVer && noVer !== raw ? raw.slice(noVer.length) : "" };
       }
       return null;
     };
@@ -193,13 +239,15 @@
         if (r) hit = { n, span, r };
       }
       if (!hit) { i++; continue; }
-      const after = text.slice(toks[i + hit.n - 1].end, toks[i + hit.n - 1].end + 14);
+      const after = text.slice(toks[i + hit.n - 1].end, toks[i + hit.n - 1].end + 24);
       const w = hit.span;
       const prev = text.slice(0, toks[i].start).trimEnd().slice(-1);   // a capital mid-sentence marks a name
       const midCap = /^[A-Z]/.test(w) && prev !== "" && !/[.!?]/.test(prev);
       const likely = midCap || hit.n > 1 || /\d/.test(w) || /[-_.]/.test(w) || /[A-Z].*[A-Z]|[a-z][A-Z]/.test(w) ||
         normalizeAlias(w).length >= 7 || VERSION_AFTER.test(after);
-      found.push({ text: w, start: toks[i].start, alias: hit.r.alias, candidates: aliasMap.get(hit.r.alias), likely });
+      const fromSuffix = /^[-_ ]?v?(\d+(?:\.\d+)*[a-z]?)$/i.exec(hit.r.ver);   // "bwa-0.7.17", "SPAdes 3.15"
+      const version = (VERSION_AFTER.exec(after) || fromSuffix || [])[1] || null;
+      found.push({ text: w, start: toks[i].start, alias: hit.r.alias, candidates: aliasMap.get(hit.r.alias), likely, version });
       i += hit.n;
     }
     return found;
@@ -207,7 +255,7 @@
 
   return {
     normalizeAlias, stripScriptExt, bibtexName, parseAuthor, splitAuthors, entryFromTool,
-    buildEntries, toBibtex, toBibtexAll, toRis, toRisAll, toCsl, toCslAll, toText, toTextAll,
+    buildEntries, softwareList, versionLabel, citeLabel, toBibtex, toBibtexAll, toRis, toRisAll, toCsl, toCslAll, toText, toTextAll,
     findMentions,
   };
 });

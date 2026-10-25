@@ -59,6 +59,7 @@
           <button role="radio" data-fmt="txt" aria-checked="false">Text</button>
         </div>
         <label class="check" id="protectWrap"><input type="checkbox" id="protect" checked> Keep title capitalisation (wrap in braces)</label>
+        <label class="check" id="softwareWrap" hidden><input type="checkbox" id="software"> Also add a software entry (name, version, link) for tools with a version</label>
         <p id="cite" class="cite" hidden></p>
         <label class="sr" for="out">Formatted references</label>
         <textarea id="out" rows="12" readonly spellcheck="false"></textarea>
@@ -67,7 +68,13 @@
           <button id="download" class="btn">Download</button>
           <button id="share" class="btn ghost">Copy link</button>
         </div>
+        <button id="copyOverrides" class="link" hidden>Copy my paper choices as overrides.json entries</button>
         <p id="note" class="hint" aria-live="polite"></p>
+        <div id="methods" hidden>
+          <label for="sw">Software and versions for your methods</label>
+          <textarea id="sw" rows="4" readonly spellcheck="false"></textarea>
+          <div class="row"><button id="copySw" class="btn">Copy</button></div>
+        </div>
       </div>
     </div>
   </aside>
