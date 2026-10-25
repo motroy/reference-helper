@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tool References</title>
+<meta name="description" content="Search bioinformatics tools and build a BibTeX bibliography of their citations. Static, runs in your browser.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#q">Skip to search</a>
+<header class="top">
+  <div class="wrap">
+    <h1>Tool References</h1>
+    <p class="lede">Find the paper to cite for a bioinformatics tool, check its DOI and PMID, and export a bibliography for your methods section.</p>
+    <p class="meta" id="meta" aria-live="polite">Loading tool index…</p>
+  </div>
+</header>
+
+<main class="wrap grid">
+  <section class="main" aria-label="Find tools">
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tab-search" aria-selected="true" aria-controls="pane-search">Search</button>
+      <button role="tab" id="tab-paste" aria-selected="false" aria-controls="pane-paste" tabindex="-1">Paste methods text</button>
+    </div>
+
+    <div id="pane-search" role="tabpanel" aria-labelledby="tab-search">
+      <label class="sr" for="q">Search tools by name, title, DOI or PMID</label>
+      <input id="q" type="search" placeholder="Tool name, paper title, DOI or PMID…  (press / to focus)" autocomplete="off" spellcheck="false" disabled>
+      <div id="chips" class="chips" aria-label="Examples"></div>
+      <p id="status" class="status" aria-live="polite"></p>
+      <ol id="results" class="results"></ol>
+      <button id="more" class="btn ghost" hidden>Show more</button>
+    </div>
+
+    <div id="pane-paste" role="tabpanel" aria-labelledby="tab-paste" hidden>
+      <p class="hint">Paste a methods paragraph or a list of tools. Names found in the index are listed for you to confirm; nothing leaves your browser.</p>
+      <label class="sr" for="paste">Methods text</label>
+      <textarea id="paste" rows="8" placeholder="Reads were trimmed with fastp v0.23, assembled with SPAdes 3.15 and annotated with Prokka…"></textarea>
+      <div class="row"><button id="find" class="btn primary" disabled>Find tools</button><span id="pasteStatus" class="status" aria-live="polite"></span></div>
+      <ol id="found" class="found"></ol>
+      <button id="addFound" class="btn primary" hidden>Add selected to bibliography</button>
+    </div>
+  </section>
+
+  <aside class="basket" id="basket" aria-label="Bibliography">
+    <div class="basket-in">
+      <div class="basket-head"><h2>Bibliography <span id="count" class="count">0</span></h2>
+        <button id="clear" class="link" hidden>Clear</button></div>
+      <p id="empty" class="hint">Add tools from the search results. The list is saved in this browser and in the page link, so you can share it.</p>
+      <ul id="items" class="items"></ul>
+      <p id="warn" class="warn" hidden></p>
+
+      <div id="export" hidden>
+        <div class="seg" role="radiogroup" aria-label="Format">
+          <button role="radio" data-fmt="bib" aria-checked="true">BibTeX</button>
+          <button role="radio" data-fmt="ris" aria-checked="false">RIS</button>
+          <button role="radio" data-fmt="csl" aria-checked="false">CSL JSON</button>
+          <button role="radio" data-fmt="txt" aria-checked="false">Text</button>
+        </div>
+        <label class="check" id="protectWrap"><input type="checkbox" id="protect" checked> Keep title capitalisation (wrap in braces)</label>
+        <p id="cite" class="cite" hidden></p>
+        <label class="sr" for="out">Formatted references</label>
+        <textarea id="out" rows="12" readonly spellcheck="false"></textarea>
+        <div class="row">
+          <button id="copy" class="btn primary">Copy</button>
+          <button id="download" class="btn">Download</button>
+          <button id="share" class="btn ghost">Copy link</button>
+        </div>
+        <p id="note" class="hint" aria-live="polite"></p>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<footer class="wrap foot">
+  <p>Citations come from the <a href="https://bio.tools">bio.tools</a> registry, completed from PubMed and Crossref and cross-checked for DOI/PMID agreement. They are records, not generated text. Always confirm entries marked <em>check</em> against the paper before submitting.</p>
+</footer>
+
+<script src="vendor/minisearch.min.js"></script>
+<script src="lib.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
