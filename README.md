@@ -107,7 +107,17 @@ python3 -m http.server 8000
 Then open <http://localhost:8000>. Opening `index.html` directly from disk will not work, because
 browsers block the page from loading its data files.
 
-## Licence and attribution
+## Data and licences
 
-Add your licence here. bio.tools data is available under CC BY 4.0 (check the registry's current
-terms before redistributing), and MiniSearch is MIT licensed (see `docs/vendor/`).
+- **Data** (`docs/data/`, and the database inside `biotools-rebuild.zip`): derived from the
+  [bio.tools](https://bio.tools) registry through the Zenodo aggregation
+  [bio.tools Aggregated Records](https://doi.org/10.5281/zenodo.13869530) by Charles Tapley Hoyt. Both are
+  licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), and so is this derived data.
+  **Changes made:** records were filtered, merged with bibliographic metadata from PubMed and Crossref
+  (titles, authors, journals, years, DOIs and PMIDs only; no abstracts), corrected, grouped by tool and
+  reformatted as JSON. The site footer repeats this notice.
+- **Code** (`build_site.py`, `docs/app.js`, `lib.js`, `style.css`, `index.html`): MIT, see `LICENSE`.
+- **MiniSearch** (`docs/vendor/`): MIT, Copyright 2022 Luca Ongaro, notice included.
+- If you reuse the data, keep this attribution and the link to the licence.
+- Registry records can be wrong or out of date. Nothing here is endorsed by bio.tools, ELIXIR, PubMed or
+  Crossref.
