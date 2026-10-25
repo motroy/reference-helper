@@ -102,3 +102,16 @@ input:disabled { opacity: .6; }
 
 .foot { color: var(--muted); font-size: .82rem; padding-bottom: 36px; border-top: 1px solid var(--line); padding-top: 14px; }
 [hidden] { display: none !important; }
+
+.items .tune { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin-top: 4px; }
+.items input.ver { width: 11.5em; font: inherit; font-size: .82rem; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; }
+.items .tune .link { padding: 0; font-size: .82rem; }
+.items .pick { grid-column: 1 / -1; margin-top: 6px; }
+.picker { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px 8px; margin: 0; }
+.picker legend { font-size: .82rem; color: var(--muted); padding: 0 4px; }
+.opt { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; padding: 6px 0; border-top: 1px solid var(--line); cursor: pointer; font-size: .85rem; }
+.opt:first-of-type { border-top: 0; }
+.opt .ptitle { display: block; font-family: var(--serif); }
+.opt .pmeta { display: block; color: var(--muted); font-size: .78rem; }
+#methods { margin-top: 10px; } #methods label { font-size: .85rem; font-weight: 600; } #sw { font: .8rem/1.45 var(--mono); }
+#copyOverrides { display: block; margin-top: 4px; }
